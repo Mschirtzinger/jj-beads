@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/config"
 	"github.com/steveyegge/beads/internal/rpc"
 	"github.com/steveyegge/beads/internal/storage/sqlite"
+	turso "github.com/steveyegge/beads/internal/turso/db"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/util"
@@ -29,6 +32,18 @@ This is useful for agents executing molecules to see which steps can run next.`,
 		molID, _ := cmd.Flags().GetString("mol")
 		if molID != "" {
 			runMoleculeReady(cmd, molID)
+			return
+		}
+
+		// Check for Turso mode flag
+		tursoMode, _ := cmd.Flags().GetBool("turso")
+		if tursoMode {
+			runReadyWithTurso(cmd)
+			return
+		}
+
+		// Try Turso cache if available (unless explicitly disabled)
+		if !tursoMode && tryReadyWithTursoCache(cmd) {
 			return
 		}
 
@@ -437,6 +452,102 @@ type MoleculeReadyOutput struct {
 	ParallelGroups map[string][]string     `json:"parallel_groups"`
 }
 
+// tryReadyWithTursoCache attempts to use Turso cache if it exists.
+// Returns true if Turso was used, false if fallback to JSONL should proceed.
+func tryReadyWithTursoCache(cmd *cobra.Command) bool {
+	// Check if Turso cache exists
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		return false
+	}
+
+	tursoPath := filepath.Join(beadsDir, "turso.db")
+	if _, err := os.Stat(tursoPath); os.IsNotExist(err) {
+		return false // Cache doesn't exist, fallback to JSONL
+	}
+
+	// Turso cache exists, use it
+	runReadyWithTurso(cmd)
+	return true
+}
+
+// runReadyWithTurso queries ready tasks from Turso cache.
+func runReadyWithTurso(cmd *cobra.Command) {
+	beadsDir := beads.FindBeadsDir()
+	if beadsDir == "" {
+		fmt.Fprintf(os.Stderr, "Error: .beads directory not found\n")
+		os.Exit(1)
+	}
+
+	tursoPath := filepath.Join(beadsDir, "turso.db")
+
+	// Open Turso database
+	tursoDb, err := turso.Open(tursoPath)
+	if err != nil {
+		if cmd.Flags().Changed("turso") {
+			// Explicit --turso flag: error if cache doesn't exist
+			fmt.Fprintf(os.Stderr, "Error: Turso cache not found at %s\n", tursoPath)
+			os.Exit(1)
+		}
+		// Implicit fallback: cache doesn't exist, skip silently
+		return
+	}
+	defer tursoDb.Close()
+
+	// Get flags
+	limit, _ := cmd.Flags().GetInt("limit")
+	assignee, _ := cmd.Flags().GetString("assignee")
+	includeDeferred, _ := cmd.Flags().GetBool("include-deferred")
+
+	// Query ready tasks
+	ctx := rootCtx
+	opts := turso.ReadyTasksOptions{
+		IncludeDeferred: includeDeferred,
+		Limit:           limit,
+		AssignedAgent:   assignee,
+	}
+
+	tasks, err := tursoDb.GetReadyTasks(ctx, opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error querying Turso cache: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Convert TaskFile to Issue for display
+	issues := make([]*types.Issue, 0, len(tasks))
+	for _, task := range tasks {
+		issues = append(issues, task.ToIssue())
+	}
+
+	if jsonOutput {
+		if issues == nil {
+			issues = []*types.Issue{}
+		}
+		outputJSON(issues)
+		return
+	}
+
+	// Show upgrade notification if needed
+	maybeShowUpgradeNotification()
+
+	if len(issues) == 0 {
+		fmt.Printf("\n%s No ready work found\n\n", ui.RenderPass("✨"))
+		return
+	}
+
+	fmt.Printf("\n%s Ready work (%d tasks from Turso cache):\n\n", ui.RenderAccent("📋"), len(issues))
+	for i, issue := range issues {
+		fmt.Printf("%d. [%s] [%s] %s: %s\n", i+1,
+			ui.RenderPriority(issue.Priority),
+			ui.RenderType(string(issue.IssueType)),
+			ui.RenderID(issue.ID), issue.Title)
+		if issue.Assignee != "" {
+			fmt.Printf("   Assigned: %s\n", issue.Assignee)
+		}
+	}
+	fmt.Println()
+}
+
 func init() {
 	readyCmd.Flags().IntP("limit", "n", 10, "Maximum issues to show")
 	readyCmd.Flags().IntP("priority", "p", 0, "Filter by priority")
@@ -451,6 +562,7 @@ func init() {
 	readyCmd.Flags().String("mol-type", "", "Filter by molecule type: swarm, patrol, or work")
 	readyCmd.Flags().Bool("pretty", false, "Display issues in a tree format with status/priority symbols")
 	readyCmd.Flags().Bool("include-deferred", false, "Include issues with future defer_until timestamps")
+	readyCmd.Flags().Bool("turso", false, "Force Turso cache mode (error if cache doesn't exist)")
 	rootCmd.AddCommand(readyCmd)
 	blockedCmd.Flags().String("parent", "", "Filter to descendants of this bead/epic")
 	rootCmd.AddCommand(blockedCmd)
