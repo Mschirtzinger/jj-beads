@@ -36,7 +36,7 @@ func NewBeadsRunner(dbPath string, taskCount int, blockedPercent float64, seed i
 
 	// Set issue prefix for ID generation
 	if err := store.SetConfig(ctx, "issue_prefix", "bench"); err != nil {
-		store.Close()
+		_ = store.Close()
 		return nil, fmt.Errorf("failed to set issue prefix: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func NewBeadsRunner(dbPath string, taskCount int, blockedPercent float64, seed i
 
 	// Generate test data
 	if err := runner.generateTestData(ctx, taskCount, blockedPercent, seed); err != nil {
-		runner.Close()
+		_ = runner.Close()
 		return nil, err
 	}
 

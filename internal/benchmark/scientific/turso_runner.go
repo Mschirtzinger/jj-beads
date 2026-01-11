@@ -54,7 +54,7 @@ func NewTursoRunner(dbPath string, taskCount int, blockedPercent float64, seed i
 
 	// Generate test data
 	if err := runner.generateTestData(taskCount, blockedPercent, seed); err != nil {
-		runner.Close()
+		_ = runner.Close()
 		return nil, err
 	}
 

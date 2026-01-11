@@ -188,7 +188,7 @@ func (w *jjWorkspace) HasChanges(paths ...string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer w.jj.editChange(ctx, currentChange)
+	defer func() { _ = w.jj.editChange(ctx, currentChange) }()
 
 	if err := w.jj.editChange(ctx, w.changeID); err != nil {
 		return false, err
@@ -205,7 +205,7 @@ func (w *jjWorkspace) Commit(ctx context.Context, message string, paths []string
 	if err != nil {
 		return err
 	}
-	defer w.jj.editChange(ctx, currentChange)
+	defer func() { _ = w.jj.editChange(ctx, currentChange) }()
 
 	if err := w.jj.editChange(ctx, w.changeID); err != nil {
 		return err

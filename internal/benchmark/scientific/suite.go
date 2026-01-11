@@ -115,7 +115,7 @@ func runImplementation(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create runner: %w", err)
 	}
-	defer runner.Close()
+	defer func() { _ = runner.Close() }()
 
 	dataPoints := make([]DataPoint, 0, config.MeasurementRuns)
 	ctx := context.Background()

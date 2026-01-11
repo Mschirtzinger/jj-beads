@@ -73,7 +73,7 @@ func Open(path string) (*DB, error) {
 
 	// Test connection
 	if err := conn.Ping(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -89,19 +89,19 @@ func Open(path string) (*DB, error) {
 
 	// Enable WAL mode for concurrent reads
 	if _, err := db.conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
 	// Set busy timeout to 5 seconds
 	if _, err := db.conn.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
 	}
 
 	// Enable foreign keys
 	if _, err := db.conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 

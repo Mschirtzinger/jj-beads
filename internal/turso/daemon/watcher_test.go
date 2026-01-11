@@ -367,41 +367,55 @@ func TestFileWatcher_MultipleEvents(t *testing.T) {
 	}
 
 	// Collect events (with timeout)
+	// Note: On Linux, fsnotify may generate multiple events per file operation
+	// (e.g., CREATE + WRITE). We collect for a fixed duration rather than
+	// expecting an exact count.
 	var events []FileEvent
-	timeout := time.After(3 * time.Second)
-	for i := 0; i < len(files); i++ {
+	collectDone := time.After(2 * time.Second)
+
+CollectLoop:
+	for {
 		select {
 		case event := <-fw.Events():
 			events = append(events, event)
-		case <-timeout:
-			t.Fatalf("Timeout waiting for events. Got %d/%d events", len(events), len(files))
+		case <-collectDone:
+			break CollectLoop
 		}
 	}
 
-	// Verify we got all events
-	if len(events) != len(files) {
-		t.Errorf("Expected %d events, got %d", len(files), len(events))
+	// Verify we got at least the minimum expected events
+	// (may have more due to platform-specific behavior)
+	if len(events) < len(files) {
+		t.Errorf("Expected at least %d events, got %d", len(files), len(events))
 	}
 
-	// Verify each event has correct type
+	// Count unique files by path to verify all files were detected
+	seenFiles := make(map[string]bool)
 	taskCount := 0
 	depCount := 0
+
 	for _, event := range events {
-		if event.Op != OpCreate {
-			t.Errorf("Expected OpCreate, got %v for %s", event.Op, event.Path)
-		}
-		if event.Type == TypeTask {
-			taskCount++
-		} else if event.Type == TypeDep {
-			depCount++
+		// Only count CREATE events to avoid double-counting on Linux
+		if event.Op == OpCreate {
+			seenFiles[event.Path] = true
+			if event.Type == TypeTask {
+				taskCount++
+			} else if event.Type == TypeDep {
+				depCount++
+			}
 		}
 	}
 
-	if taskCount != 2 {
-		t.Errorf("Expected 2 task events, got %d", taskCount)
+	// Verify all files were detected (at least once)
+	if len(seenFiles) < len(files) {
+		t.Errorf("Expected to see %d unique files, saw %d", len(files), len(seenFiles))
 	}
-	if depCount != 1 {
-		t.Errorf("Expected 1 dep event, got %d", depCount)
+
+	if taskCount < 2 {
+		t.Errorf("Expected at least 2 task create events, got %d", taskCount)
+	}
+	if depCount < 1 {
+		t.Errorf("Expected at least 1 dep create event, got %d", depCount)
 	}
 }
 

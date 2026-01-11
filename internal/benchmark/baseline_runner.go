@@ -24,8 +24,8 @@ import (
 func RunBaselineBenchmark(config BenchmarkConfig) (*BenchmarkResult, error) {
 	// Clean up any existing JSONL file
 	jsonlPath := config.DBPath + ".jsonl"
-	os.Remove(jsonlPath)
-	defer os.Remove(jsonlPath)
+	_ = os.Remove(jsonlPath)
+	defer func() { _ = os.Remove(jsonlPath) }()
 
 	// Measure memory before
 	memBefore := GetMemoryStats()

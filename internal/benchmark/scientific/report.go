@@ -124,8 +124,8 @@ func generateMarkdownReport(results *SuiteResults, path string) error {
 	aggregated := aggregateResults(results)
 
 	// Write report
-	fmt.Fprintf(f, "# Benchmark Report: beads-sqlite vs jj-turso\n\n")
-	fmt.Fprintf(f, "**Generated:** %s\n\n", time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(f, "# Benchmark Report: beads-sqlite vs jj-turso\n\n")
+	_, _ = fmt.Fprintf(f, "**Generated:** %s\n\n", time.Now().Format(time.RFC3339))
 
 	// System info
 	fmt.Fprintf(f, "## System Information\n\n")

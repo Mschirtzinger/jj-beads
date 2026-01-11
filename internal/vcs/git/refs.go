@@ -169,7 +169,7 @@ func (g *Git) HasDivergence(local, remote string) (vcs.DivergenceInfo, error) {
 	if err != nil {
 		return info, fmt.Errorf("failed to count ahead commits: %w", err)
 	}
-	fmt.Sscanf(strings.TrimSpace(string(aheadOutput)), "%d", &info.LocalAhead)
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(aheadOutput)), "%d", &info.LocalAhead)
 
 	// Get commits in remote but not in local
 	behindCmd := exec.Command("git", "rev-list", "--count", local+".."+remote)
@@ -178,7 +178,7 @@ func (g *Git) HasDivergence(local, remote string) (vcs.DivergenceInfo, error) {
 	if err != nil {
 		return info, fmt.Errorf("failed to count behind commits: %w", err)
 	}
-	fmt.Sscanf(strings.TrimSpace(string(behindOutput)), "%d", &info.RemoteAhead)
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(behindOutput)), "%d", &info.RemoteAhead)
 
 	info.IsDiverged = info.LocalAhead > 0 && info.RemoteAhead > 0
 	info.IsSignificant = (info.LocalAhead + info.RemoteAhead) >= vcs.SignificantDivergenceThreshold

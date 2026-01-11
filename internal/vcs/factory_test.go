@@ -207,6 +207,7 @@ func TestDetermineImplementationType(t *testing.T) {
 		name     string
 		result   *DetectionResult
 		expected Type
+		skipNoJJ bool // Skip if jj not available
 	}{
 		{
 			name: "git only",
@@ -216,6 +217,7 @@ func TestDetermineImplementationType(t *testing.T) {
 				HasJJ:  false,
 			},
 			expected: TypeGit,
+			skipNoJJ: false,
 		},
 		{
 			name: "jj only",
@@ -225,6 +227,7 @@ func TestDetermineImplementationType(t *testing.T) {
 				HasJJ:  true,
 			},
 			expected: TypeJJ,
+			skipNoJJ: true,
 		},
 		{
 			name: "colocated - prefer jj",
@@ -235,11 +238,17 @@ func TestDetermineImplementationType(t *testing.T) {
 				Colocated: true,
 			},
 			expected: TypeJJ, // Default preference
+			skipNoJJ: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Skip tests requiring jj if jj not available
+			if tt.skipNoJJ && !IsJJAvailable() {
+				t.Skip("jj not available, skipping test")
+			}
+
 			implType := factory.determineImplementationType(tt.result)
 
 			if implType != tt.expected {
@@ -256,6 +265,7 @@ func TestDetermineImplementationTypeWithPreference(t *testing.T) {
 		preferred Type
 		result    *DetectionResult
 		expected  Type
+		skipNoJJ  bool // Skip if jj not available
 	}{
 		{
 			name:      "colocated prefer git",
@@ -267,6 +277,7 @@ func TestDetermineImplementationTypeWithPreference(t *testing.T) {
 				Colocated: true,
 			},
 			expected: TypeGit,
+			skipNoJJ: false,
 		},
 		{
 			name:      "colocated prefer jj",
@@ -278,11 +289,17 @@ func TestDetermineImplementationTypeWithPreference(t *testing.T) {
 				Colocated: true,
 			},
 			expected: TypeJJ,
+			skipNoJJ: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Skip tests requiring jj if jj not available
+			if tt.skipNoJJ && !IsJJAvailable() {
+				t.Skip("jj not available, skipping test")
+			}
+
 			factory := NewFactory(WithPreferredType(tt.preferred))
 			implType := factory.determineImplementationType(tt.result)
 

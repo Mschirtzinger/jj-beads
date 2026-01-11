@@ -64,7 +64,7 @@ func CreateTestDatabase(dbPath string, numTasks int, blockedPct float64) (*TestD
 
 	// Initialize schema
 	if err := database.InitSchema(); err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
@@ -82,7 +82,7 @@ func CreateTestDatabase(dbPath string, numTasks int, blockedPct float64) (*TestD
 	tasks := generateTasks(numTasks)
 	for _, task := range tasks {
 		if err := database.UpsertTask(task); err != nil {
-			database.Close()
+			_ = database.Close()
 			return nil, fmt.Errorf("failed to insert task %s: %w", task.ID, err)
 		}
 		td.TaskIDs = append(td.TaskIDs, task.ID)
@@ -92,21 +92,21 @@ func CreateTestDatabase(dbPath string, numTasks int, blockedPct float64) (*TestD
 	deps := generateDependencies(tasks, blockedPct)
 	for _, dep := range deps {
 		if err := database.UpsertDep(dep); err != nil {
-			database.Close()
+			_ = database.Close()
 			return nil, fmt.Errorf("failed to insert dependency %s: %w", dep.ToFileName(), err)
 		}
 	}
 
 	// Refresh blocked cache
 	if err := database.RefreshBlockedCache(); err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("failed to refresh blocked cache: %w", err)
 	}
 
 	// Identify which tasks are blocked and which are ready
 	readyTasks, err := database.GetReadyTasks(context.Background(), db.ReadyTasksOptions{})
 	if err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("failed to get ready tasks: %w", err)
 	}
 

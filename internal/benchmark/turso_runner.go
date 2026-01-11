@@ -17,8 +17,8 @@ import (
 // concurrent agents that query for ready work, and measures performance metrics.
 func RunTursoBenchmark(config BenchmarkConfig) (*BenchmarkResult, error) {
 	// Clean up any existing database
-	os.Remove(config.DBPath)
-	defer os.Remove(config.DBPath)
+	_ = os.Remove(config.DBPath)
+	defer func() { _ = os.Remove(config.DBPath) }()
 
 	// Measure memory before
 	memBefore := GetMemoryStats()
@@ -31,7 +31,7 @@ func RunTursoBenchmark(config BenchmarkConfig) (*BenchmarkResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create test database: %w", err)
 	}
-	defer testDB.Close()
+	defer func() { _ = testDB.Close() }()
 
 	setupDuration := time.Since(setupStart)
 

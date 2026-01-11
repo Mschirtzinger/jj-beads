@@ -492,7 +492,7 @@ func runReadyWithTurso(cmd *cobra.Command) {
 		// Implicit fallback: cache doesn't exist, skip silently
 		return
 	}
-	defer tursoDb.Close()
+	defer func() { _ = tursoDb.Close() }()
 
 	// Get flags
 	limit, _ := cmd.Flags().GetInt("limit")

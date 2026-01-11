@@ -192,7 +192,7 @@ func (s *Server) Stop() error {
 	// Close all WebSocket connections
 	s.clientsMu.Lock()
 	for conn := range s.clients {
-		conn.Close(websocket.StatusGoingAway, "Server shutting down")
+		_ = conn.Close(websocket.StatusGoingAway, "Server shutting down")
 		delete(s.clients, conn)
 	}
 	s.clientsMu.Unlock()
@@ -294,7 +294,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	welcomeData, _ := json.Marshal(welcome)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	conn.Write(ctx, websocket.MessageText, welcomeData)
+	_ = conn.Write(ctx, websocket.MessageText, welcomeData)
 	cancel()
 
 	// Keep connection alive (read loop)
@@ -322,7 +322,7 @@ func (s *Server) removeClient(conn *websocket.Conn) {
 		clientCount := len(s.clients)
 		s.clientsMu.Unlock()
 
-		conn.Close(websocket.StatusNormalClosure, "")
+		_ = conn.Close(websocket.StatusNormalClosure, "")
 		s.logger.Printf("Client disconnected (total: %d)", clientCount)
 	} else {
 		s.clientsMu.Unlock()
@@ -336,7 +336,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.clientsMu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "ok",
 		"clients": clientCount,
 	})
@@ -345,7 +345,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // handleRoot returns basic server information
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head>
     <title>Beads Dashboard</title>

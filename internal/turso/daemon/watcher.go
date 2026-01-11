@@ -120,7 +120,7 @@ func (fw *FileWatcher) Start(tasksDir, depsDir string) error {
 
 	if err := fw.watcher.Add(depsDir); err != nil {
 		// Clean up tasks watch if deps watch fails
-		fw.watcher.Remove(tasksDir)
+		_ = fw.watcher.Remove(tasksDir)
 		return fmt.Errorf("failed to watch deps directory %s: %w", depsDir, err)
 	}
 
