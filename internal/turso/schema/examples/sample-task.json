@@ -1,0 +1,17 @@
+{
+  "id": "bd-xyz",
+  "title": "Implement feature X",
+  "description": "Add new feature to support jj-turso integration with 100+ agent scalability",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 1,
+  "assigned_agent": "agent-47",
+  "tags": [
+    "backend",
+    "api"
+  ],
+  "created_at": "2026-01-10T07:36:29Z",
+  "updated_at": "2026-01-10T08:15:00Z",
+  "due_at": null,
+  "defer_until": null
+}

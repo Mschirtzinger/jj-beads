@@ -69,6 +69,10 @@ create, update, show, or close operation).`,
 			assignee, _ := cmd.Flags().GetString("assignee")
 			updates["assignee"] = assignee
 		}
+		if cmd.Flags().Changed("assigned-agent") {
+			assignedAgent, _ := cmd.Flags().GetString("assigned-agent")
+			updates["assignee"] = assignedAgent // Map to assignee field in Issue
+		}
 		description, descChanged := getDescriptionFlag(cmd)
 		if descChanged {
 			updates["description"] = description
@@ -604,6 +608,7 @@ func init() {
 	updateCmd.Flags().StringSlice("remove-label", nil, "Remove labels (repeatable)")
 	updateCmd.Flags().StringSlice("set-labels", nil, "Set labels, replacing all existing (repeatable)")
 	updateCmd.Flags().String("parent", "", "New parent issue ID (reparents the issue, use empty string to remove parent)")
+	updateCmd.Flags().String("assigned-agent", "", "Agent ID for jj-turso agent claiming (syncs to Turso cache)")
 	updateCmd.Flags().Bool("claim", false, "Atomically claim the issue (sets assignee to you, status to in_progress; fails if already claimed)")
 	updateCmd.Flags().String("session", "", "Claude Code session ID for status=closed (or set CLAUDE_SESSION_ID env var)")
 	// Time-based scheduling flags (GH#820)

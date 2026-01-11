@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/steveyegge/beads/internal/beads"
 	"github.com/steveyegge/beads/internal/configfile"
 	"github.com/steveyegge/beads/internal/storage/sqlite"
+	"github.com/steveyegge/beads/internal/turso/migrate"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/utils"
@@ -36,7 +38,8 @@ Subcommands:
   hash-ids    Migrate sequential IDs to hash-based IDs (legacy)
   issues      Move issues between repositories
   sync        Set up sync.branch workflow for multi-clone setups
-  tombstones  Convert deletions.jsonl to inline tombstones`,
+  tombstones  Convert deletions.jsonl to inline tombstones
+  from-jsonl  Migrate JSONL to file-based format (jj-turso)`,
 	Run: func(cmd *cobra.Command, _ []string) {
 		autoYes, _ := cmd.Flags().GetBool("yes")
 		cleanup, _ := cmd.Flags().GetBool("cleanup")
@@ -967,6 +970,171 @@ func handleToSeparateBranch(branch string, dryRun bool) {
 	}
 }
 
+// migrateFromJSONLCmd is the subcommand for migrating from JSONL to file-based format
+var migrateFromJSONLCmd = &cobra.Command{
+	Use:   "from-jsonl",
+	Short: "Migrate from JSONL to file-based format",
+	Long: `Migrate from JSONL format to individual JSON files for jj-turso.
+
+The migration converts:
+  - Issues → tasks/*.json (one file per task)
+  - Dependencies → deps/*.json (one file per dependency)
+
+This enables jj's automatic conflict resolution and parallel agent coordination.
+
+Examples:
+  # Preview migration (dry-run)
+  bd migrate from-jsonl --from-jsonl .beads/issues.jsonl --to-files tasks/ --dry-run
+
+  # Perform migration with backup
+  bd migrate from-jsonl --from-jsonl .beads/issues.jsonl --to-files tasks/ --backup
+
+  # Rollback migration (remove generated files)
+  bd migrate from-jsonl --rollback --to-files tasks/`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fromJSONL, _ := cmd.Flags().GetString("from-jsonl")
+		toFiles, _ := cmd.Flags().GetString("to-files")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		backup, _ := cmd.Flags().GetBool("backup")
+		rollback, _ := cmd.Flags().GetBool("rollback")
+
+		// Handle rollback mode
+		if rollback {
+			if toFiles == "" {
+				fmt.Fprintf(os.Stderr, "Error: --to-files is required for rollback\n")
+				os.Exit(1)
+			}
+
+			if !jsonOutput {
+				fmt.Printf("Rolling back migration from %s...\n", toFiles)
+			}
+
+			if err := migrate.CleanupMigration(toFiles); err != nil {
+				if jsonOutput {
+					outputJSON(map[string]interface{}{
+						"success": false,
+						"error":   err.Error(),
+					})
+				} else {
+					fmt.Fprintf(os.Stderr, "Error during rollback: %v\n", err)
+				}
+				os.Exit(1)
+			}
+
+			if jsonOutput {
+				outputJSON(map[string]interface{}{
+					"success":  true,
+					"rollback": true,
+				})
+			} else {
+				fmt.Println("Rollback completed successfully")
+				fmt.Println("  - Removed tasks/ directory")
+				fmt.Println("  - Removed deps/ directory")
+			}
+			return
+		}
+
+		// Validate required flags for migration
+		if fromJSONL == "" {
+			fmt.Fprintf(os.Stderr, "Error: --from-jsonl is required\n")
+			os.Exit(1)
+		}
+
+		if toFiles == "" {
+			fmt.Fprintf(os.Stderr, "Error: --to-files is required\n")
+			os.Exit(1)
+		}
+
+		// Perform migration
+		opts := migrate.MigrateOptions{
+			FromJSONL: fromJSONL,
+			ToFiles:   toFiles,
+			DryRun:    dryRun,
+			Backup:    backup,
+		}
+
+		ctx := context.Background()
+		result, err := migrate.Migrate(ctx, opts)
+		if err != nil {
+			if jsonOutput {
+				outputJSON(map[string]interface{}{
+					"success": false,
+					"error":   err.Error(),
+				})
+			} else {
+				fmt.Fprintf(os.Stderr, "Error during migration: %v\n", err)
+			}
+			os.Exit(1)
+		}
+
+		// Output JSON format if requested
+		if jsonOutput {
+			outputJSON(map[string]interface{}{
+				"success":         true,
+				"tasks_converted": result.TasksConverted,
+				"deps_created":    result.DepsCreated,
+				"files_written":   result.FilesWritten,
+				"backup_created":  result.BackupCreated,
+				"errors":          result.Errors,
+				"dry_run":         dryRun,
+			})
+			return
+		}
+
+		// Human-readable output
+		// Show dry-run banner
+		if dryRun {
+			fmt.Println("=== DRY RUN MODE ===")
+			fmt.Println("No files will be written")
+			fmt.Println()
+		}
+
+		// Report results
+		fmt.Printf("\nMigration %s\n", func() string {
+			if dryRun {
+				return "Preview"
+			}
+			return "Complete"
+		}())
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		fmt.Printf("Tasks converted:     %d\n", result.TasksConverted)
+		fmt.Printf("Dependencies created: %d\n", result.DepsCreated)
+
+		if !dryRun {
+			fmt.Printf("Files written:       %d\n", result.FilesWritten)
+
+			if result.BackupCreated != "" {
+				fmt.Printf("\nBackup created: %s\n", result.BackupCreated)
+			}
+		}
+
+		if len(result.Errors) > 0 {
+			fmt.Printf("\nErrors encountered: %d\n", len(result.Errors))
+			for _, err := range result.Errors {
+				fmt.Printf("  - %s\n", err)
+			}
+		}
+
+		if dryRun {
+			fmt.Println("\nTo perform the migration, run without --dry-run:")
+			fmt.Printf("  bd migrate from-jsonl --from-jsonl %s --to-files %s --backup\n",
+				fromJSONL, toFiles)
+		} else {
+			fmt.Printf("\nMigrated files written to:\n")
+			fmt.Printf("  - Tasks: %s/tasks/\n", toFiles)
+			fmt.Printf("  - Dependencies: %s/deps/\n", toFiles)
+
+			if backup {
+				fmt.Println("\nTo rollback the migration:")
+				fmt.Printf("  bd migrate from-jsonl --rollback --to-files %s\n", toFiles)
+				fmt.Printf("  # Then restore from backup: cp %s %s\n",
+					result.BackupCreated, fromJSONL)
+			}
+		}
+	},
+}
+
 func init() {
 	migrateCmd.Flags().Bool("yes", false, "Auto-confirm cleanup prompts")
 	migrateCmd.Flags().Bool("cleanup", false, "Remove old database files after migration")
@@ -974,5 +1142,14 @@ func init() {
 	migrateCmd.Flags().Bool("update-repo-id", false, "Update repository ID (use after changing git remote)")
 	migrateCmd.Flags().Bool("inspect", false, "Show migration plan and database state for AI agent analysis")
 	migrateCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output migration statistics in JSON format")
+
+	// Add from-jsonl subcommand
+	migrateFromJSONLCmd.Flags().String("from-jsonl", "", "Input JSONL file path (required)")
+	migrateFromJSONLCmd.Flags().String("to-files", "", "Output directory for task/dep files (required)")
+	migrateFromJSONLCmd.Flags().Bool("dry-run", false, "Preview migration without writing files")
+	migrateFromJSONLCmd.Flags().Bool("backup", false, "Create backup of original JSONL before migration")
+	migrateFromJSONLCmd.Flags().Bool("rollback", false, "Rollback migration by removing generated files")
+	migrateCmd.AddCommand(migrateFromJSONLCmd)
+
 	rootCmd.AddCommand(migrateCmd)
 }
