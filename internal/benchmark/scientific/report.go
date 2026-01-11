@@ -131,35 +131,35 @@ func generateMarkdownReport(results *SuiteResults, path string) error {
 	_, _ = fmt.Fprintf(f, "## System Information\n\n")
 	_, _ = fmt.Fprintf(f, "- **OS:** %s\n", results.SystemInfo.OS)
 	_, _ = fmt.Fprintf(f, "- **Architecture:** %s\n", results.SystemInfo.Arch)
-	fmt.Fprintf(f, "- **CPUs:** %d\n", results.SystemInfo.CPUs)
-	fmt.Fprintf(f, "- **Go Version:** %s\n", results.SystemInfo.GoVersion)
+	_, _ = fmt.Fprintf(f, "- **CPUs:** %d\n", results.SystemInfo.CPUs)
+	_, _ = fmt.Fprintf(f, "- **Go Version:** %s\n", results.SystemInfo.GoVersion)
 	if results.SystemInfo.GitCommit != "" {
-		fmt.Fprintf(f, "- **Git Commit:** %s\n", results.SystemInfo.GitCommit)
+		_, _ = fmt.Fprintf(f, "- **Git Commit:** %s\n", results.SystemInfo.GitCommit)
 	}
 	if results.SystemInfo.Hostname != "" {
-		fmt.Fprintf(f, "- **Hostname:** %s\n", results.SystemInfo.Hostname)
+		_, _ = fmt.Fprintf(f, "- **Hostname:** %s\n", results.SystemInfo.Hostname)
 	}
-	fmt.Fprintf(f, "- **Duration:** %v\n", results.EndTime.Sub(results.StartTime))
-	fmt.Fprintf(f, "\n")
+	_, _ = fmt.Fprintf(f, "- **Duration:** %v\n", results.EndTime.Sub(results.StartTime))
+	_, _ = fmt.Fprintf(f, "\n")
 
 	// Configuration
-	fmt.Fprintf(f, "## Benchmark Configuration\n\n")
-	fmt.Fprintf(f, "- **Task Counts:** %v\n", results.Config.TaskCounts)
-	fmt.Fprintf(f, "- **Agent Counts:** %v\n", results.Config.AgentCounts)
-	fmt.Fprintf(f, "- **Queries Per Agent:** %d\n", results.Config.QueriesPerAgent)
-	fmt.Fprintf(f, "- **Warmup Runs:** %d\n", results.Config.WarmupRuns)
-	fmt.Fprintf(f, "- **Measurement Runs:** %d\n", results.Config.MeasurementRuns)
-	fmt.Fprintf(f, "- **Blocked Percent:** %.1f%%\n", results.Config.BlockedPercent*100)
-	fmt.Fprintf(f, "- **Random Seed:** %d\n", results.Config.Seed)
-	fmt.Fprintf(f, "\n")
+	_, _ = fmt.Fprintf(f, "## Benchmark Configuration\n\n")
+	_, _ = fmt.Fprintf(f, "- **Task Counts:** %v\n", results.Config.TaskCounts)
+	_, _ = fmt.Fprintf(f, "- **Agent Counts:** %v\n", results.Config.AgentCounts)
+	_, _ = fmt.Fprintf(f, "- **Queries Per Agent:** %d\n", results.Config.QueriesPerAgent)
+	_, _ = fmt.Fprintf(f, "- **Warmup Runs:** %d\n", results.Config.WarmupRuns)
+	_, _ = fmt.Fprintf(f, "- **Measurement Runs:** %d\n", results.Config.MeasurementRuns)
+	_, _ = fmt.Fprintf(f, "- **Blocked Percent:** %.1f%%\n", results.Config.BlockedPercent*100)
+	_, _ = fmt.Fprintf(f, "- **Random Seed:** %d\n", results.Config.Seed)
+	_, _ = fmt.Fprintf(f, "\n")
 
 	// Results tables
 	for _, taskCount := range results.Config.TaskCounts {
-		fmt.Fprintf(f, "## Results: %d Tasks\n\n", taskCount)
+		_, _ = fmt.Fprintf(f, "## Results: %d Tasks\n\n", taskCount)
 
-		fmt.Fprintf(f, "### Latency (P95, milliseconds)\n\n")
-		fmt.Fprintf(f, "| Agents | beads-sqlite | jj-turso | Speedup |\n")
-		fmt.Fprintf(f, "|--------|--------------|----------|----------|\n")
+		_, _ = fmt.Fprintf(f, "### Latency (P95, milliseconds)\n\n")
+		_, _ = fmt.Fprintf(f, "| Agents | beads-sqlite | jj-turso | Speedup |\n")
+		_, _ = fmt.Fprintf(f, "|--------|--------------|----------|----------|\n")
 
 		for _, agentCount := range results.Config.AgentCounts {
 			beads := aggregated[taskCount][agentCount]["beads-sqlite"]
@@ -170,14 +170,14 @@ func generateMarkdownReport(results *SuiteResults, path string) error {
 				tursoP95 := float64(turso.LatencyP95) / 1e6
 				speedup := beadsP95 / tursoP95
 
-				fmt.Fprintf(f, "| %d | %.2f | %.2f | %.2fx |\n", agentCount, beadsP95, tursoP95, speedup)
+				_, _ = fmt.Fprintf(f, "| %d | %.2f | %.2f | %.2fx |\n", agentCount, beadsP95, tursoP95, speedup)
 			}
 		}
-		fmt.Fprintf(f, "\n")
+		_, _ = fmt.Fprintf(f, "\n")
 
-		fmt.Fprintf(f, "### Throughput (queries/sec)\n\n")
-		fmt.Fprintf(f, "| Agents | beads-sqlite | jj-turso | Improvement |\n")
-		fmt.Fprintf(f, "|--------|--------------|----------|-------------|\n")
+		_, _ = fmt.Fprintf(f, "### Throughput (queries/sec)\n\n")
+		_, _ = fmt.Fprintf(f, "| Agents | beads-sqlite | jj-turso | Improvement |\n")
+		_, _ = fmt.Fprintf(f, "|--------|--------------|----------|-------------|\n")
 
 		for _, agentCount := range results.Config.AgentCounts {
 			beads := aggregated[taskCount][agentCount]["beads-sqlite"]
@@ -188,30 +188,30 @@ func generateMarkdownReport(results *SuiteResults, path string) error {
 				tursoQPS := turso.QueriesPerSecond
 				improvement := ((tursoQPS - beadsQPS) / beadsQPS) * 100
 
-				fmt.Fprintf(f, "| %d | %.0f | %.0f | %+.1f%% |\n", agentCount, beadsQPS, tursoQPS, improvement)
+				_, _ = fmt.Fprintf(f, "| %d | %.0f | %.0f | %+.1f%% |\n", agentCount, beadsQPS, tursoQPS, improvement)
 			}
 		}
-		fmt.Fprintf(f, "\n")
+		_, _ = fmt.Fprintf(f, "\n")
 	}
 
 	// Analysis
-	fmt.Fprintf(f, "## Analysis\n\n")
-	fmt.Fprintf(f, "### Methodology\n\n")
-	fmt.Fprintf(f, "This benchmark compares two SQLite-based implementations:\n\n")
-	fmt.Fprintf(f, "- **beads-sqlite:** Main beads implementation using `internal/storage/sqlite`\n")
-	fmt.Fprintf(f, "- **jj-turso:** jj-turso implementation using `internal/turso/db` with optimizations for concurrent access\n\n")
-	fmt.Fprintf(f, "Both implementations use SQLite as the underlying database. The difference is in optimization approach:\n\n")
-	fmt.Fprintf(f, "- beads-sqlite: Traditional SQLite with standard connection pooling\n")
-	fmt.Fprintf(f, "- jj-turso: Embedded libSQL with WAL mode, optimized connection pool, and materialized blocked cache\n\n")
-	fmt.Fprintf(f, "Test data is generated deterministically (seed=%d) to ensure fair comparison.\n\n", results.Config.Seed)
-	fmt.Fprintf(f, "### Key Findings\n\n")
-	fmt.Fprintf(f, "*Add your analysis here after reviewing the results.*\n\n")
-	fmt.Fprintf(f, "### Recommendations\n\n")
-	fmt.Fprintf(f, "*Add recommendations based on the benchmark results.*\n\n")
+	_, _ = fmt.Fprintf(f, "## Analysis\n\n")
+	_, _ = fmt.Fprintf(f, "### Methodology\n\n")
+	_, _ = fmt.Fprintf(f, "This benchmark compares two SQLite-based implementations:\n\n")
+	_, _ = fmt.Fprintf(f, "- **beads-sqlite:** Main beads implementation using `internal/storage/sqlite`\n")
+	_, _ = fmt.Fprintf(f, "- **jj-turso:** jj-turso implementation using `internal/turso/db` with optimizations for concurrent access\n\n")
+	_, _ = fmt.Fprintf(f, "Both implementations use SQLite as the underlying database. The difference is in optimization approach:\n\n")
+	_, _ = fmt.Fprintf(f, "- beads-sqlite: Traditional SQLite with standard connection pooling\n")
+	_, _ = fmt.Fprintf(f, "- jj-turso: Embedded libSQL with WAL mode, optimized connection pool, and materialized blocked cache\n\n")
+	_, _ = fmt.Fprintf(f, "Test data is generated deterministically (seed=%d) to ensure fair comparison.\n\n", results.Config.Seed)
+	_, _ = fmt.Fprintf(f, "### Key Findings\n\n")
+	_, _ = fmt.Fprintf(f, "*Add your analysis here after reviewing the results.*\n\n")
+	_, _ = fmt.Fprintf(f, "### Recommendations\n\n")
+	_, _ = fmt.Fprintf(f, "*Add recommendations based on the benchmark results.*\n\n")
 
 	// Footer
-	fmt.Fprintf(f, "---\n\n")
-	fmt.Fprintf(f, "See `results.csv` for raw data and `results.json` for complete results.\n")
+	_, _ = fmt.Fprintf(f, "---\n\n")
+	_, _ = fmt.Fprintf(f, "See `results.csv` for raw data and `results.json` for complete results.\n")
 
 	fmt.Printf("Generated report: %s\n", path)
 	return nil

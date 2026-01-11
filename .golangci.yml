@@ -99,6 +99,41 @@ linters:
         linters:
           - misspell
         text: 'cancelled'
+      # G404: Weak random in benchmarks and tests is acceptable (not security-sensitive)
+      - path: 'internal/benchmark/.*\.go|internal/turso/loadtest/.*\.go'
+        linters:
+          - gosec
+        text: "G404"
+      # G115: Integer overflow conversions in benchmarks are acceptable
+      - path: 'internal/benchmark/.*\.go'
+        linters:
+          - gosec
+        text: "G115"
+      # G202: SQL concatenation with strings.Join is safe (conditions array is controlled)
+      - path: 'internal/turso/db/turso\.go'
+        linters:
+          - gosec
+        text: "G202"
+      # G304/G306: File operations in turso schema are safe (controlled paths)
+      - path: 'internal/turso/schema/.*\.go'
+        linters:
+          - gosec
+        text: "G304|G306"
+      # G204: Git subprocess launches are safe (part of VCS abstraction)
+      - path: 'internal/vcs/git/.*\.go'
+        linters:
+          - gosec
+        text: "G204"
+      # G304: File reads in VCS detection are safe (controlled paths)
+      - path: 'internal/vcs/detect\.go'
+        linters:
+          - gosec
+        text: "G304"
+      # unparam: Unused parameters in helper functions for future extensibility
+      - path: 'internal/benchmark/baseline_runner\.go|internal/benchmark/scientific/suite\.go|internal/turso/daemon/daemon\.go|internal/vcs/factory\.go'
+        linters:
+          - unparam
+        text: "queryReadyFromJSONL|totalRuns|recomputeBlockedCache|envBool"
 
 issues:
   uniq-by-line: true
