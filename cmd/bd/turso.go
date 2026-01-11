@@ -50,7 +50,7 @@ This performs a full sync:
 			fmt.Fprintf(os.Stderr, "Error opening Turso database: %v\n", err)
 			os.Exit(1)
 		}
-		defer database.Close()
+		defer func() { _ = database.Close() }()
 
 		// Initialize schema if needed
 		if err := database.InitSchema(); err != nil {
@@ -129,7 +129,7 @@ Shows:
 			fmt.Fprintf(os.Stderr, "Error opening database: %v\n", err)
 			os.Exit(1)
 		}
-		defer database.Close()
+		defer func() { _ = database.Close() }()
 
 		taskCount, err := database.GetTaskCount()
 		if err != nil {
@@ -202,7 +202,7 @@ The daemon will:
 			fmt.Fprintf(os.Stderr, "Error opening Turso database: %v\n", err)
 			os.Exit(1)
 		}
-		defer database.Close()
+		defer func() { _ = database.Close() }()
 
 		// Initialize schema
 		if err := database.InitSchema(); err != nil {

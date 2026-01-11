@@ -113,7 +113,7 @@ func NewWithConfig(db *sql.DB, tasksDir, depsDir string, config *Config) (*Daemo
 // 3. Periodically refresh blocked cache
 // 4. Process file changes with debouncing
 //
-// This blocks until ctx is cancelled or an error occurs.
+// This blocks until ctx is canceled or an error occurs.
 func (d *Daemon) Start(ctx context.Context) error {
 	d.config.Logger.Println("Starting daemon")
 

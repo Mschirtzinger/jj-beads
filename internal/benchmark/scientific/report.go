@@ -128,9 +128,9 @@ func generateMarkdownReport(results *SuiteResults, path string) error {
 	_, _ = fmt.Fprintf(f, "**Generated:** %s\n\n", time.Now().Format(time.RFC3339))
 
 	// System info
-	fmt.Fprintf(f, "## System Information\n\n")
-	fmt.Fprintf(f, "- **OS:** %s\n", results.SystemInfo.OS)
-	fmt.Fprintf(f, "- **Architecture:** %s\n", results.SystemInfo.Arch)
+	_, _ = fmt.Fprintf(f, "## System Information\n\n")
+	_, _ = fmt.Fprintf(f, "- **OS:** %s\n", results.SystemInfo.OS)
+	_, _ = fmt.Fprintf(f, "- **Architecture:** %s\n", results.SystemInfo.Arch)
 	fmt.Fprintf(f, "- **CPUs:** %d\n", results.SystemInfo.CPUs)
 	fmt.Fprintf(f, "- **Go Version:** %s\n", results.SystemInfo.GoVersion)
 	if results.SystemInfo.GitCommit != "" {

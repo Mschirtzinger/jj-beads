@@ -216,7 +216,7 @@ func parseAffectedFiles(diffOutput []byte, tasksDir, depsDir string) []string {
 
 // WatchOpLog polls the jj operation log for new operations and calls the callback.
 //
-// This function blocks until the context is cancelled. It polls at the configured
+// This function blocks until the context is canceled. It polls at the configured
 // interval and calls the callback whenever new operations are detected.
 //
 // Operations are delivered to the callback in chronological order (oldest first).

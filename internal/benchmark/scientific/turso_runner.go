@@ -24,9 +24,9 @@ type TursoRunner struct {
 // The database is created at dbPath and populated with test data.
 func NewTursoRunner(dbPath string, taskCount int, blockedPercent float64, seed int64) (*TursoRunner, error) {
 	// Remove existing database
-	os.Remove(dbPath)
-	os.Remove(dbPath + "-wal")
-	os.Remove(dbPath + "-shm")
+	_ = os.Remove(dbPath)
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
 
 	// Create database
 	database, err := db.Open(dbPath)
@@ -41,7 +41,7 @@ func NewTursoRunner(dbPath string, taskCount int, blockedPercent float64, seed i
 
 	// Initialize schema
 	if err := database.InitSchema(); err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 

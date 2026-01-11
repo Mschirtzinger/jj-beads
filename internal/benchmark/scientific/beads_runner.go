@@ -25,7 +25,7 @@ type BeadsRunner struct {
 // The database is created at dbPath and populated with test data.
 func NewBeadsRunner(dbPath string, taskCount int, blockedPercent float64, seed int64) (*BeadsRunner, error) {
 	// Remove existing database
-	os.Remove(dbPath)
+	_ = os.Remove(dbPath)
 
 	// Create storage
 	ctx := context.Background()
