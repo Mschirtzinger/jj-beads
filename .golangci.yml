@@ -124,11 +124,16 @@ linters:
         linters:
           - gosec
         text: "G204"
-      # G304: File reads in VCS detection are safe (controlled paths)
-      - path: 'internal/vcs/detect\.go'
+      # G304: File reads in VCS detection and workspace are safe (controlled paths)
+      - path: 'internal/vcs/(detect|git/workspace)\.go'
         linters:
           - gosec
         text: "G304"
+      # G204: jj subprocess launches in oplog are safe (part of jj integration)
+      - path: 'internal/turso/daemon/oplog\.go'
+        linters:
+          - gosec
+        text: "G204"
       # unparam: Unused parameters in helper functions for future extensibility
       - path: 'internal/benchmark/baseline_runner\.go|internal/benchmark/scientific/suite\.go|internal/turso/daemon/daemon\.go|internal/vcs/factory\.go'
         linters:
