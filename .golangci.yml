@@ -125,7 +125,7 @@ linters:
           - gosec
         text: "G204"
       # G304: File reads in VCS detection and workspace are safe (controlled paths)
-      - path: 'internal/vcs/(detect|git/workspace|jj/workspace)\.go|internal/benchmark/baseline_runner\.go'
+      - path: 'internal/vcs/(detect|git/workspace|jj/workspace)\.go|internal/benchmark/.*\.go'
         linters:
           - gosec
         text: "G304"
