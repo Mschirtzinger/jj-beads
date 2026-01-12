@@ -1,23 +1,23 @@
-// Package db provides Turso (embedded libSQL) database integration for jj-beads.
+// Package db provides libSQL database integration for jj-beads.
 //
 // This package implements the query cache layer for the jj-turso architecture,
 // which replaces beads' git-based sync with jj (Jujutsu) for version control
-// and Turso for fast concurrent queries.
+// and libSQL for fast concurrent queries.
 //
-// The database runs in EMBEDDED/SELF-HOSTED mode (NOT cloud mode) using libSQL
-// with SQLite embedded mode and WAL for concurrency support.
+// The database uses libSQL - Turso's production-ready C fork of SQLite with
+// enhanced concurrency support via WAL mode and connection pooling.
 //
 // Architecture:
 //   - Database file: .beads/turso.db
-//   - WAL mode: Concurrent readers during writes
+//   - WAL mode: Write-Ahead Logging for concurrent reads during writes
 //   - Schema: tasks, deps, blocked_cache tables
 //   - Indexes: Optimized for ready work queries (status, priority, defer_until)
 //
 // Workflow:
 //  1. Agents modify task files in tasks/*.json (jj working copy)
 //  2. Sync daemon watches jj op log for changes
-//  3. Changes are synced to Turso for fast querying
-//  4. CLI queries Turso for ready work, not filesystem
+//  3. Changes are synced to libSQL for fast querying
+//  4. CLI queries libSQL for ready work, not filesystem
 package db
 
 import (
@@ -31,12 +31,11 @@ import (
 	"time"
 
 	"github.com/steveyegge/beads/internal/turso/schema"
-	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
+	_ "github.com/tursodatabase/go-libsql"
 )
 
-// DB wraps the libSQL database connection with Turso-specific functionality.
-// This provides embedded SQLite with WAL mode for concurrent access.
+// DB wraps the libSQL database connection.
+// This provides SQLite-compatible storage with WAL mode for concurrent access.
 type DB struct {
 	conn *sql.DB
 	path string
@@ -63,10 +62,9 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Open database using sqlite3 driver (ncruces/go-sqlite3)
-	// Format for embedded mode: file:path
+	// Open database using libSQL driver with file: URL for local embedded mode
 	connStr := fmt.Sprintf("file:%s", path)
-	conn, err := sql.Open("sqlite3", connStr)
+	conn, err := sql.Open("libsql", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -87,22 +85,20 @@ func Open(path string) (*DB, error) {
 		path: path,
 	}
 
-	// Enable WAL mode for concurrent reads
-	if _, err := db.conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	// Configure pragmas - libSQL may handle these differently than SQLite
+	// Use Query and consume results to handle varying return behavior
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
 	}
-
-	// Set busy timeout to 5 seconds
-	if _, err := db.conn.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
-	}
-
-	// Enable foreign keys
-	if _, err := db.conn.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	for _, pragma := range pragmas {
+		rows, err := db.conn.Query(pragma)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to execute %s: %w", pragma, err)
+		}
+		rows.Close() // Consume and close any result rows
 	}
 
 	return db, nil
@@ -115,15 +111,9 @@ func (db *DB) RawDB() *sql.DB {
 }
 
 // Close closes the database connection.
-// Performs a WAL checkpoint to ensure all changes are persisted.
 func (db *DB) Close() error {
 	if db.conn == nil {
 		return nil
-	}
-
-	// Checkpoint WAL before closing
-	if _, err := db.conn.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to checkpoint WAL: %v\n", err)
 	}
 
 	if err := db.conn.Close(); err != nil {
@@ -144,67 +134,59 @@ func (db *DB) InitSchema() error {
 }
 
 // InitSchemaContext creates the database schema with context support.
+// Executes statements individually for libSQL compatibility.
 func (db *DB) InitSchemaContext(ctx context.Context) error {
-	schema := `
-	-- Core tables
-	CREATE TABLE IF NOT EXISTS tasks (
-		id TEXT PRIMARY KEY,
-		title TEXT NOT NULL,
-		type TEXT NOT NULL,
-		status TEXT NOT NULL DEFAULT 'open',
-		priority INTEGER NOT NULL DEFAULT 2,
-		assigned_agent TEXT,
-		description TEXT,
-		tags TEXT,  -- JSON array
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL,
-		due_at TEXT,
-		defer_until TEXT,
+	statements := []string{
+		// Core tables
+		`CREATE TABLE IF NOT EXISTS tasks (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			type TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'open',
+			priority INTEGER NOT NULL DEFAULT 2,
+			assigned_agent TEXT,
+			description TEXT,
+			tags TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			due_at TEXT,
+			defer_until TEXT,
+			is_blocked INTEGER NOT NULL DEFAULT 0,
+			blocking_count INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS deps (
+			from_id TEXT NOT NULL,
+			to_id TEXT NOT NULL,
+			type TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY (from_id, to_id, type),
+			FOREIGN KEY (from_id) REFERENCES tasks(id) ON DELETE CASCADE,
+			FOREIGN KEY (to_id) REFERENCES tasks(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS blocked_cache (
+			task_id TEXT PRIMARY KEY,
+			blocked_by TEXT,
+			computed_at TEXT NOT NULL,
+			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+		)`,
+		// Indexes
+		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_defer ON tasks(defer_until)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(is_blocked)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_ready_work ON tasks(status, is_blocked, defer_until, priority)`,
+		`CREATE INDEX IF NOT EXISTS idx_deps_to ON deps(to_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deps_from ON deps(from_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_deps_type ON deps(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_deps_blocks ON deps(type, from_id) WHERE type = 'blocks'`,
+	}
 
-		-- Computed for fast queries
-		is_blocked INTEGER NOT NULL DEFAULT 0,
-		blocking_count INTEGER NOT NULL DEFAULT 0
-	);
-
-	CREATE TABLE IF NOT EXISTS deps (
-		from_id TEXT NOT NULL,
-		to_id TEXT NOT NULL,
-		type TEXT NOT NULL,  -- blocks, related, parent-child, discovered-from
-		created_at TEXT NOT NULL,
-		PRIMARY KEY (from_id, to_id, type),
-		FOREIGN KEY (from_id) REFERENCES tasks(id) ON DELETE CASCADE,
-		FOREIGN KEY (to_id) REFERENCES tasks(id) ON DELETE CASCADE
-	);
-
-	-- Materialized view for ready queries
-	CREATE TABLE IF NOT EXISTS blocked_cache (
-		task_id TEXT PRIMARY KEY,
-		blocked_by TEXT,  -- JSON array of blocking task IDs
-		computed_at TEXT NOT NULL,
-		FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-	);
-
-	-- Indexes for common queries
-	CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-	CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
-	CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent);
-	CREATE INDEX IF NOT EXISTS idx_tasks_defer ON tasks(defer_until);
-	CREATE INDEX IF NOT EXISTS idx_tasks_blocked ON tasks(is_blocked);
-	CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
-
-	-- Composite index for ready work optimization
-	CREATE INDEX IF NOT EXISTS idx_tasks_ready_work
-	    ON tasks(status, is_blocked, defer_until, priority);
-
-	CREATE INDEX IF NOT EXISTS idx_deps_to ON deps(to_id);
-	CREATE INDEX IF NOT EXISTS idx_deps_from ON deps(from_id);
-	CREATE INDEX IF NOT EXISTS idx_deps_type ON deps(type);
-	CREATE INDEX IF NOT EXISTS idx_deps_blocks
-	    ON deps(type, from_id) WHERE type = 'blocks';
-	`
-
-	if _, err := db.conn.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("failed to initialize schema: %w", err)
+	for _, stmt := range statements {
+		if _, err := db.conn.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to execute schema statement: %w\nStatement: %s", err, stmt)
+		}
 	}
 
 	return nil
@@ -345,6 +327,7 @@ func (db *DB) RefreshBlockedCache() error {
 }
 
 // RefreshBlockedCacheContext recomputes the blocked status with context support.
+// Uses iterative approach for Limbo compatibility (no recursive CTEs).
 func (db *DB) RefreshBlockedCacheContext(ctx context.Context) error {
 	// Start transaction
 	tx, err := db.conn.BeginTx(ctx, nil)
@@ -358,48 +341,109 @@ func (db *DB) RefreshBlockedCacheContext(ctx context.Context) error {
 		return fmt.Errorf("failed to clear blocked cache: %w", err)
 	}
 
-	// Compute transitive closure of blocks dependencies
-	query := `
-	WITH RECURSIVE blocked AS (
-		-- Base case: direct blocks dependencies
-		SELECT to_id as task_id, from_id as blocker
-		FROM deps
-		WHERE type = 'blocks'
-		  AND from_id IN (SELECT id FROM tasks WHERE status != 'closed')
-
-		UNION
-
-		-- Recursive case: transitive dependencies
-		SELECT b.task_id, d.from_id
-		FROM blocked b
-		JOIN deps d ON d.to_id = b.blocker
-		WHERE d.type = 'blocks'
-		  AND d.from_id IN (SELECT id FROM tasks WHERE status != 'closed')
-	)
-	INSERT INTO blocked_cache (task_id, blocked_by, computed_at)
-	SELECT
-		task_id,
-		json_group_array(blocker) as blocked_by,
-		datetime('now') as computed_at
-	FROM blocked
-	GROUP BY task_id
-	`
-
-	if _, err := tx.ExecContext(ctx, query); err != nil {
-		return fmt.Errorf("failed to compute blocked cache: %w", err)
+	// Reset all is_blocked flags
+	if _, err := tx.ExecContext(ctx, "UPDATE tasks SET is_blocked = 0"); err != nil {
+		return fmt.Errorf("failed to reset is_blocked flags: %w", err)
 	}
 
-	// Update is_blocked flag on tasks
-	updateQuery := `
-	UPDATE tasks SET is_blocked =
-		CASE
-			WHEN id IN (SELECT task_id FROM blocked_cache) THEN 1
-			ELSE 0
-		END
-	`
+	// Get all open task IDs for filtering
+	openTasks := make(map[string]bool)
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM tasks WHERE status != 'closed'")
+	if err != nil {
+		return fmt.Errorf("failed to query open tasks: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan task id: %w", err)
+		}
+		openTasks[id] = true
+	}
+	rows.Close()
 
-	if _, err := tx.ExecContext(ctx, updateQuery); err != nil {
-		return fmt.Errorf("failed to update is_blocked flags: %w", err)
+	// Get all blocking dependencies
+	rows, err = tx.QueryContext(ctx, "SELECT from_id, to_id FROM deps WHERE type = 'blocks'")
+	if err != nil {
+		return fmt.Errorf("failed to query blocking deps: %w", err)
+	}
+
+	// Build adjacency: blockedBy[task] = list of tasks blocking it
+	blockedBy := make(map[string][]string)
+	for rows.Next() {
+		var fromID, toID string
+		if err := rows.Scan(&fromID, &toID); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan dep: %w", err)
+		}
+		// Only count if blocker is open
+		if openTasks[fromID] {
+			blockedBy[toID] = append(blockedBy[toID], fromID)
+		}
+	}
+	rows.Close()
+
+	// Compute transitive closure iteratively
+	// blocked[task] = set of all tasks transitively blocking it
+	blocked := make(map[string]map[string]bool)
+	for taskID, blockers := range blockedBy {
+		if blocked[taskID] == nil {
+			blocked[taskID] = make(map[string]bool)
+		}
+		for _, b := range blockers {
+			blocked[taskID][b] = true
+		}
+	}
+
+	// Iterate until no changes (fixed point)
+	changed := true
+	for changed {
+		changed = false
+		for taskID, blockers := range blocked {
+			for blockerID := range blockers {
+				// Add transitive blockers
+				if transitiveBlockers, ok := blocked[blockerID]; ok {
+					for tb := range transitiveBlockers {
+						if !blocked[taskID][tb] {
+							blocked[taskID][tb] = true
+							changed = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Insert into blocked_cache and update is_blocked
+	now := time.Now().Format(time.RFC3339)
+	for taskID, blockers := range blocked {
+		if len(blockers) == 0 {
+			continue
+		}
+
+		// Build JSON array of blockers
+		blockerList := make([]string, 0, len(blockers))
+		for b := range blockers {
+			blockerList = append(blockerList, b)
+		}
+		blockedByJSON, err := json.Marshal(blockerList)
+		if err != nil {
+			return fmt.Errorf("failed to marshal blockers: %w", err)
+		}
+
+		// Insert into cache
+		_, err = tx.ExecContext(ctx,
+			"INSERT INTO blocked_cache (task_id, blocked_by, computed_at) VALUES (?, ?, ?)",
+			taskID, string(blockedByJSON), now)
+		if err != nil {
+			return fmt.Errorf("failed to insert blocked cache: %w", err)
+		}
+
+		// Update is_blocked flag
+		_, err = tx.ExecContext(ctx, "UPDATE tasks SET is_blocked = 1 WHERE id = ?", taskID)
+		if err != nil {
+			return fmt.Errorf("failed to update is_blocked: %w", err)
+		}
 	}
 
 	// Commit transaction
@@ -596,32 +640,61 @@ func (db *DB) GetBlockingTasks(taskID string) ([]*schema.TaskFile, error) {
 }
 
 // GetBlockingTasksContext returns blocking tasks with context support.
+// Uses iterative approach for Limbo compatibility (no recursive CTEs).
 func (db *DB) GetBlockingTasksContext(ctx context.Context, taskID string) ([]*schema.TaskFile, error) {
-	query := `
-	WITH RECURSIVE blocking AS (
-		-- Base case: direct blockers
-		SELECT from_id as blocker_id
-		FROM deps
-		WHERE to_id = ? AND type = 'blocks'
+	// Build blocking graph iteratively
+	// blockedBy[task] = list of tasks that block it
+	blockedBy := make(map[string][]string)
+	rows, err := db.conn.QueryContext(ctx, "SELECT from_id, to_id FROM deps WHERE type = 'blocks'")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query blocking deps: %w", err)
+	}
+	for rows.Next() {
+		var fromID, toID string
+		if err := rows.Scan(&fromID, &toID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan dep: %w", err)
+		}
+		blockedBy[toID] = append(blockedBy[toID], fromID)
+	}
+	rows.Close()
 
-		UNION
+	// Find all transitive blockers using BFS
+	allBlockers := make(map[string]bool)
+	queue := blockedBy[taskID]
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if allBlockers[current] {
+			continue // Already visited
+		}
+		allBlockers[current] = true
+		// Add this task's blockers to the queue
+		queue = append(queue, blockedBy[current]...)
+	}
 
-		-- Recursive case: blockers of blockers
-		SELECT d.from_id
-		FROM deps d
-		JOIN blocking b ON d.to_id = b.blocker_id
-		WHERE d.type = 'blocks'
-	)
-	SELECT DISTINCT t.id, t.title, t.description, t.type, t.status, t.priority,
-	       t.assigned_agent, t.tags, t.created_at, t.updated_at,
-	       t.due_at, t.defer_until
-	FROM tasks t
-	JOIN blocking b ON t.id = b.blocker_id
-	WHERE t.status != 'closed'
-	ORDER BY t.priority ASC, t.created_at ASC
-	`
+	if len(allBlockers) == 0 {
+		return []*schema.TaskFile{}, nil
+	}
 
-	rows, err := db.conn.QueryContext(ctx, query, taskID)
+	// Build query for blocking tasks
+	placeholders := make([]string, 0, len(allBlockers))
+	args := make([]interface{}, 0, len(allBlockers))
+	for id := range allBlockers {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, title, description, type, status, priority,
+		       assigned_agent, tags, created_at, updated_at,
+		       due_at, defer_until
+		FROM tasks
+		WHERE id IN (%s) AND status != 'closed'
+		ORDER BY priority ASC, created_at ASC
+	`, strings.Join(placeholders, ","))
+
+	rows, err = db.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query blocking tasks: %w", err)
 	}
@@ -744,23 +817,17 @@ func (db *DB) ListTasksContext(ctx context.Context, filter ListTasksFilter) ([]*
 		args = append(args, filter.AssignedAgent)
 	}
 
-	// Build SELECT clause - only use DISTINCT when joining with json_each
-	selectClause := "SELECT"
-	if filter.Tag != "" {
-		selectClause += " DISTINCT"
-	}
-
-	query := selectClause + ` t.id, t.title, t.description, t.type, t.status, t.priority,
+	query := `SELECT t.id, t.title, t.description, t.type, t.status, t.priority,
 	       t.assigned_agent, t.tags, t.created_at, t.updated_at,
 	       t.due_at, t.defer_until
 	FROM tasks t
 	`
 
-	// Add tag join if filtering by tag
+	// Filter by tag using LIKE (Limbo doesn't support json_each)
+	// Tags are stored as JSON array: ["tag1","tag2"]
 	if filter.Tag != "" {
-		query += `, json_each(t.tags)`
-		conditions = append(conditions, "json_each.value = ?")
-		args = append(args, filter.Tag)
+		conditions = append(conditions, `t.tags LIKE ?`)
+		args = append(args, fmt.Sprintf(`%%"%s"%%`, filter.Tag))
 	}
 
 	if len(conditions) > 0 {
